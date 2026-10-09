@@ -70,6 +70,9 @@ hx-remote cursor <path>                 # print a file's cursor position
 hx-remote selection <path>              # print a file's selection range and text
 hx-remote diagnostics <path>            # print a file's current diagnostics
 hx-remote workspace-root [<path>]       # print a workspace root
+hx-remote content <path>                # print a file's live buffer content (incl. unsaved edits)
+hx-remote modified <path>               # print whether a file's buffer has unsaved changes
+hx-remote set-content <path>            # replace a file's live buffer from stdin (no disk write)
 hx-remote list-files                    # list a running instance's open buffers
 hx-remote list-instances                # list running instances
 ```

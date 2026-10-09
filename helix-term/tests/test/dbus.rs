@@ -475,10 +475,20 @@ async fn get_diagnostics_over_dbus() -> anyhow::Result<()> {
 
     let get_task = tokio::spawn(async move { proxy.get_diagnostics(&path).await });
     let (diagnostics, error) = pump_while(&mut app, get_task).await?;
-    assert!(error.is_empty(), "GetDiagnostics returned an error: {error}");
+    assert!(
+        error.is_empty(),
+        "GetDiagnostics returned an error: {error}"
+    );
     assert_eq!(
         diagnostics,
-        vec![(1, 7, 1, 11, "warning".to_string(), "something's off".to_string())]
+        vec![(
+            1,
+            7,
+            1,
+            11,
+            "warning".to_string(),
+            "something's off".to_string()
+        )]
     );
 
     Ok(())
@@ -504,11 +514,164 @@ async fn get_workspace_root_over_dbus() -> anyhow::Result<()> {
 
     let get_task = tokio::spawn(async move { proxy.get_workspace_root(&path).await });
     let (root, error) = pump_while(&mut app, get_task).await?;
-    assert!(error.is_empty(), "GetWorkspaceRoot returned an error: {error}");
+    assert!(
+        error.is_empty(),
+        "GetWorkspaceRoot returned an error: {error}"
+    );
     assert_eq!(
         helix_stdx::path::canonicalize(root),
         helix_stdx::path::canonicalize(workspace.path())
     );
+
+    Ok(())
+}
+
+/// `GetBufferContent` and `IsModified` both see an unsaved edit that the
+/// on-disk file doesn't have — the whole point of reading the buffer
+/// instead of the file.
+#[tokio::test(flavor = "multi_thread")]
+async fn get_buffer_content_and_is_modified_over_dbus() -> anyhow::Result<()> {
+    require_session_bus!();
+
+    let mut app = AppBuilder::new().build()?;
+    let client = Connection::session().await?;
+    let proxy = connect(&mut app, &client).await?;
+
+    let file = tempfile::NamedTempFile::new()?;
+    std::fs::write(file.path(), "hello from dbus\n")?;
+    let path = file.path().to_str().unwrap().to_owned();
+
+    let open_task = {
+        let proxy = proxy.clone();
+        let path = path.clone();
+        tokio::spawn(async move { proxy.open_file(&path, 0, 0, false, false).await })
+    };
+    let result = pump_while(&mut app, open_task).await?;
+    assert!(result.is_empty(), "OpenFile returned an error: {result}");
+
+    // Unmodified right after opening.
+    let modified_task = {
+        let proxy = proxy.clone();
+        let path = path.clone();
+        tokio::spawn(async move { proxy.is_modified(&path).await })
+    };
+    let (modified, error) = pump_while(&mut app, modified_task).await?;
+    assert!(error.is_empty(), "IsModified returned an error: {error}");
+    assert!(!modified, "freshly opened buffer should not be modified");
+
+    // Edit the buffer without saving: the on-disk file is now stale.
+    let doc_id = app
+        .editor
+        .document_id_by_path(file.path())
+        .expect("file should be open");
+    let view_id = app.editor.tree.focus;
+    let doc = helix_view::doc_mut!(app.editor, &doc_id);
+    let transaction = helix_core::Transaction::change(
+        doc.text(),
+        std::iter::once((0, 0, Some("EDITED: ".into()))),
+    );
+    doc.apply(&transaction, view_id);
+
+    let content_task = {
+        let proxy = proxy.clone();
+        let path = path.clone();
+        tokio::spawn(async move { proxy.get_buffer_content(&path).await })
+    };
+    let (content, error) = pump_while(&mut app, content_task).await?;
+    assert!(
+        error.is_empty(),
+        "GetBufferContent returned an error: {error}"
+    );
+    assert_eq!(content, "EDITED: hello from dbus\n");
+    assert_eq!(
+        std::fs::read_to_string(file.path())?,
+        "hello from dbus\n",
+        "the on-disk file should be untouched by the in-memory edit"
+    );
+
+    let modified_task = tokio::spawn(async move { proxy.is_modified(&path).await });
+    let (modified, error) = pump_while(&mut app, modified_task).await?;
+    assert!(error.is_empty(), "IsModified returned an error: {error}");
+    assert!(modified, "buffer with an unsaved edit should be modified");
+
+    Ok(())
+}
+
+/// `SetBufferContent` replaces an open file's buffer without touching disk,
+/// and leaves the buffer modified.
+#[tokio::test(flavor = "multi_thread")]
+async fn set_buffer_content_over_dbus() -> anyhow::Result<()> {
+    require_session_bus!();
+
+    let mut app = AppBuilder::new().build()?;
+    let client = Connection::session().await?;
+    let proxy = connect(&mut app, &client).await?;
+
+    let file = tempfile::NamedTempFile::new()?;
+    std::fs::write(file.path(), "original contents\n")?;
+    let path = file.path().to_str().unwrap().to_owned();
+
+    let open_task = {
+        let proxy = proxy.clone();
+        let path = path.clone();
+        tokio::spawn(async move { proxy.open_file(&path, 0, 0, false, false).await })
+    };
+    let result = pump_while(&mut app, open_task).await?;
+    assert!(result.is_empty(), "OpenFile returned an error: {result}");
+
+    let set_task = {
+        let proxy = proxy.clone();
+        let path = path.clone();
+        tokio::spawn(async move { proxy.set_buffer_content(&path, "replaced contents\n").await })
+    };
+    let error = pump_while(&mut app, set_task).await?;
+    assert!(
+        error.is_empty(),
+        "SetBufferContent returned an error: {error}"
+    );
+
+    let doc_id = app
+        .editor
+        .document_id_by_path(file.path())
+        .expect("file should still be open");
+    let doc = helix_view::doc!(app.editor, &doc_id);
+    assert_eq!(doc.text().to_string(), "replaced contents\n");
+    assert!(
+        doc.is_modified(),
+        "SetBufferContent should leave the buffer modified"
+    );
+    assert_eq!(
+        std::fs::read_to_string(file.path())?,
+        "original contents\n",
+        "SetBufferContent must not touch the file on disk"
+    );
+
+    // Also works for a file that was never displayed in any view.
+    let file2 = tempfile::NamedTempFile::new()?;
+    std::fs::write(file2.path(), "second file\n")?;
+    let path2 = file2.path().to_str().unwrap().to_owned();
+
+    let open_task = {
+        let proxy = proxy.clone();
+        let path2 = path2.clone();
+        tokio::spawn(async move { proxy.open_file(&path2, 0, 0, false, false).await })
+    };
+    let result = pump_while(&mut app, open_task).await?;
+    assert!(result.is_empty(), "OpenFile returned an error: {result}");
+
+    let set_task = tokio::spawn(async move { proxy.set_buffer_content(&path2, "new\n").await });
+    let error = pump_while(&mut app, set_task).await?;
+    assert!(
+        error.is_empty(),
+        "SetBufferContent returned an error: {error}"
+    );
+
+    let doc_id2 = app
+        .editor
+        .document_id_by_path(file2.path())
+        .expect("second file should still be open");
+    let doc2 = helix_view::doc!(app.editor, &doc_id2);
+    assert_eq!(doc2.text().to_string(), "new\n");
 
     Ok(())
 }

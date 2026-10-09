@@ -7,9 +7,14 @@
 //! other direction (closing a buffer, and picking up out-of-band changes to
 //! an already-open file), and `ListOpenFiles` lets a remote picker or
 //! status tool see what's currently open. `GetCursorPosition`,
-//! `GetSelection`, `GetDiagnostics`, and `GetWorkspaceRoot` let a remote
-//! tool pull context from the editor (e.g. for an AI assistant) instead of
-//! only pushing actions at it.
+//! `GetSelection`, `GetDiagnostics`, `GetWorkspaceRoot`, `GetBufferContent`,
+//! and `IsModified` let a remote tool pull context from the editor (e.g.
+//! for an AI assistant) instead of only pushing actions at it —
+//! `GetBufferContent`/`IsModified` in particular see unsaved edits still
+//! only in memory, which reading the file from disk cannot. `SetBufferContent`
+//! is the way back the other direction: push a new, externally-computed
+//! version of the content (e.g. a merge result) into the live buffer
+//! without touching disk.
 //!
 //! Each instance claims a PID-suffixed bus name (`org.helix_editor.Helix.pid<PID>`)
 //! so that multiple running instances never collide, and additionally makes a
@@ -33,7 +38,10 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use helix_core::{coords_at_pos, diagnostic::Severity, pos_at_coords, Position, Selection};
+use helix_core::{
+    coords_at_pos, diagnostic::Severity, diff::compare_ropes, pos_at_coords, Position, Rope,
+    Selection,
+};
 use helix_dbus::{OBJECT_PATH, SHARED_WELL_KNOWN_NAME};
 use helix_event::register_hook;
 use helix_loader::workspace_trust::TrustQuery;
@@ -313,6 +321,62 @@ impl Interface {
     async fn get_workspace_root(&self, path: String) -> (String, String) {
         (get_workspace_root(&path), String::new())
     }
+
+    /// Reports an open file's current buffer content, including unsaved
+    /// changes (unlike reading the file itself from disk).
+    async fn get_buffer_content(&self, path: String) -> (String, String) {
+        let (tx, rx) = oneshot::channel();
+        let path = PathBuf::from(path);
+
+        job::dispatch(move |editor, _compositor| {
+            let _ = tx.send(get_buffer_content(editor, &path));
+        })
+        .await;
+
+        match rx.await {
+            Ok(Ok(content)) => (content, String::new()),
+            Ok(Err(err)) => (String::new(), err),
+            Err(_) => (String::new(), "Helix shut down before replying".to_string()),
+        }
+    }
+
+    /// Reports whether an open file's buffer has unsaved changes.
+    async fn is_modified(&self, path: String) -> (bool, String) {
+        let (tx, rx) = oneshot::channel();
+        let path = PathBuf::from(path);
+
+        job::dispatch(move |editor, _compositor| {
+            let _ = tx.send(is_modified(editor, &path));
+        })
+        .await;
+
+        match rx.await {
+            Ok(Ok(modified)) => (modified, String::new()),
+            Ok(Err(err)) => (false, err),
+            Err(_) => (false, "Helix shut down before replying".to_string()),
+        }
+    }
+
+    /// Replaces an open file's buffer content, applied as a single diff
+    /// against the current content (same technique as `ReloadFile`) so
+    /// it's undo-recoverable. Never touches disk; the buffer is left
+    /// modified. Returns an empty string on success, or a human readable
+    /// error message on failure.
+    async fn set_buffer_content(&self, path: String, content: String) -> String {
+        let (tx, rx) = oneshot::channel();
+        let path = PathBuf::from(path);
+
+        job::dispatch(move |editor, _compositor| {
+            let _ = tx.send(set_buffer_content(editor, &path, &content));
+        })
+        .await;
+
+        match rx.await {
+            Ok(Ok(())) => String::new(),
+            Ok(Err(err)) => err,
+            Err(_) => "Helix shut down before replying".to_string(),
+        }
+    }
 }
 
 fn open_file(
@@ -387,6 +451,28 @@ fn reload_file(editor: &mut Editor, path: &Path) -> Result<(), String> {
             .file_event_handler
             .file_changed(path);
     }
+
+    Ok(())
+}
+
+fn set_buffer_content(editor: &mut Editor, path: &Path, content: &str) -> Result<(), String> {
+    let path = helix_stdx::path::canonicalize(path);
+    let doc_id = editor
+        .document_id_by_path(&path)
+        .ok_or_else(|| "file is not open".to_string())?;
+
+    let fallback_view_id = editor.tree.focus;
+    let doc = doc_mut!(editor, &doc_id);
+    let mut view_ids: Vec<_> = doc.selections().keys().copied().collect();
+    if view_ids.is_empty() {
+        doc.ensure_view_init(fallback_view_id);
+        view_ids.push(fallback_view_id);
+    }
+    let view_id = view_ids[0];
+
+    let new_text = Rope::from_str(content);
+    let transaction = compare_ropes(doc.text(), &new_text);
+    doc.apply(&transaction, view_id);
 
     Ok(())
 }
@@ -487,6 +573,16 @@ fn get_workspace_root(path: &str) -> String {
             .unwrap_or_else(|| helix_loader::find_workspace().0)
     };
     root.to_string_lossy().into_owned()
+}
+
+fn get_buffer_content(editor: &Editor, path: &Path) -> Result<String, String> {
+    let doc = open_doc_by_path(editor, path)?;
+    Ok(doc.text().to_string())
+}
+
+fn is_modified(editor: &Editor, path: &Path) -> Result<bool, String> {
+    let doc = open_doc_by_path(editor, path)?;
+    Ok(doc.is_modified())
 }
 
 /// Connect to the session bus and serve the Helix D-Bus interface at `name`

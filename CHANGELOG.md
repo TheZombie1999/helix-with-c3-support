@@ -28,6 +28,8 @@ Features:
     * Add the `hx-remote` CLI client and bash completion for it
     * Add `hx-remote changed` to open every file `git status` reports as changed
     * Add `GetCursorPosition`, `GetSelection`, `GetDiagnostics`, and `GetWorkspaceRoot` to let remote tools pull context (e.g. for an AI assistant) instead of only pushing actions, plus matching `hx-remote` subcommands (`cursor`, `selection`, `diagnostics`, `workspace-root`)
+    * Add `GetBufferContent` and `IsModified` to read an open file's live buffer (including unsaved edits, which reading the file from disk cannot see) and check for unsaved changes, plus matching `hx-remote content`/`hx-remote modified` subcommands
+    * Add `SetBufferContent` to replace an open file's buffer in place (as an undo-recoverable diff, never touching disk) — e.g. to push back the result of resolving a buffer/disk divergence — plus a matching `hx-remote set-content` subcommand that reads the new content from stdin
 
 # 25.07.1 (2025-07-18)
 

@@ -209,5 +209,67 @@
       </arg>
       <arg name="error" type="s" direction="out"/>
     </method>
+
+    <method name="GetBufferContent">
+      <tp:docstring>
+        Reports an open file's current buffer content, including any
+        unsaved changes (unlike reading the file itself from disk).
+      </tp:docstring>
+      <arg name="path" type="s" direction="in">
+        <tp:docstring>Absolute path of the open file.</tp:docstring>
+      </arg>
+      <arg name="content" type="s" direction="out">
+        <tp:docstring>The buffer's current text. Empty on failure.</tp:docstring>
+      </arg>
+      <arg name="error" type="s" direction="out">
+        <tp:docstring>
+          Empty on success, or a human readable error message on failure
+          (e.g. the file isn't open).
+        </tp:docstring>
+      </arg>
+    </method>
+
+    <method name="IsModified">
+      <tp:docstring>
+        Reports whether an open file's buffer has unsaved changes.
+      </tp:docstring>
+      <arg name="path" type="s" direction="in">
+        <tp:docstring>Absolute path of the open file.</tp:docstring>
+      </arg>
+      <arg name="modified" type="b" direction="out">
+        <tp:docstring>
+          True if the buffer has unsaved changes. False on failure.
+        </tp:docstring>
+      </arg>
+      <arg name="error" type="s" direction="out">
+        <tp:docstring>
+          Empty on success, or a human readable error message on failure
+          (e.g. the file isn't open).
+        </tp:docstring>
+      </arg>
+    </method>
+
+    <method name="SetBufferContent">
+      <tp:docstring>
+        Replaces an open file's buffer content. The replacement is
+        computed as a diff against the current content and applied as a
+        single edit (the same technique `ReloadFile` uses to pick up
+        on-disk changes), so it's undo-recoverable rather than a blunt
+        clear-and-retype. This never touches disk — the buffer is left
+        modified; pair it with a save if you want the result written out.
+      </tp:docstring>
+      <arg name="path" type="s" direction="in">
+        <tp:docstring>Absolute path of the open file.</tp:docstring>
+      </arg>
+      <arg name="content" type="s" direction="in">
+        <tp:docstring>The new buffer content.</tp:docstring>
+      </arg>
+      <arg name="error" type="s" direction="out">
+        <tp:docstring>
+          Empty on success, or a human readable error message on failure
+          (e.g. the file isn't open).
+        </tp:docstring>
+      </arg>
+    </method>
   </interface>
 </node>

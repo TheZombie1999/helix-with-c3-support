@@ -30,6 +30,17 @@ pub trait Helix1 {
     /// * `error` - Empty on success, or a human readable error message on failure.
     fn close_file(&self, path: &str, force: bool) -> zbus::Result<String>;
 
+    /// GetBufferContent method
+    ///
+    /// Reports an open file's current buffer content, including any unsaved changes (unlike reading the file itself from disk).
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Absolute path of the open file.
+    /// * `content` - The buffer's current text. Empty on failure.
+    /// * `error` - Empty on success, or a human readable error message on failure (e.g. the file isn't open).
+    fn get_buffer_content(&self, path: &str) -> zbus::Result<(String, String)>;
+
     /// GetCursorPosition method
     ///
     /// Reports the primary cursor's position in an open file's buffer.
@@ -82,6 +93,17 @@ pub trait Helix1 {
     /// * `root` - Absolute path to the workspace root.
     fn get_workspace_root(&self, path: &str) -> zbus::Result<(String, String)>;
 
+    /// IsModified method
+    ///
+    /// Reports whether an open file's buffer has unsaved changes.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Absolute path of the open file.
+    /// * `modified` - True if the buffer has unsaved changes. False on failure.
+    /// * `error` - Empty on success, or a human readable error message on failure (e.g. the file isn't open).
+    fn is_modified(&self, path: &str) -> zbus::Result<(bool, String)>;
+
     /// ListOpenFiles method
     ///
     /// Lists the absolute paths of this instance's currently open buffers that are backed by a file on disk (unsaved scratch buffers with no path are omitted).
@@ -121,4 +143,15 @@ pub trait Helix1 {
     /// * `path` - Absolute path of the open file to reload.
     /// * `error` - Empty on success, or a human readable error message on failure (e.g. the file isn't open, or no longer exists on disk).
     fn reload_file(&self, path: &str) -> zbus::Result<String>;
+
+    /// SetBufferContent method
+    ///
+    /// Replaces an open file's buffer content. The replacement is computed as a diff against the current content and applied as a single edit (the same technique `ReloadFile` uses to pick up on-disk changes), so it's undo-recoverable rather than a blunt clear-and-retype. This never touches disk — the buffer is left modified; pair it with a save if you want the result written out.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Absolute path of the open file.
+    /// * `content` - The new buffer content.
+    /// * `error` - Empty on success, or a human readable error message on failure (e.g. the file isn't open).
+    fn set_buffer_content(&self, path: &str, content: &str) -> zbus::Result<String>;
 }

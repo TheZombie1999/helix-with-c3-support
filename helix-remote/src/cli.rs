@@ -44,6 +44,9 @@ async fn run() -> anyhow::Result<()> {
         "selection" => get_selection(args).await,
         "diagnostics" => get_diagnostics(args).await,
         "workspace-root" => get_workspace_root(args).await,
+        "content" => get_buffer_content(args).await,
+        "modified" => is_modified(args).await,
+        "set-content" => set_buffer_content(args).await,
         "list-files" | "ls" => list_files(args).await,
         "list-instances" | "ps" => list_instances().await,
         "help" | "-h" | "--help" => {
@@ -70,6 +73,9 @@ USAGE:
     hx-remote selection <path> [--instance NAME | --pid PID]
     hx-remote diagnostics <path> [--instance NAME | --pid PID]
     hx-remote workspace-root [<path>] [--instance NAME | --pid PID]
+    hx-remote content <path> [--instance NAME | --pid PID]
+    hx-remote modified <path> [--instance NAME | --pid PID]
+    hx-remote set-content <path> [--instance NAME | --pid PID]   (reads new content from stdin)
     hx-remote list-files [--instance NAME | --pid PID]
     hx-remote list-instances
 
@@ -103,6 +109,16 @@ COMMANDS:
                        ancestor with a .git/.svn/.jj/.helix), or this
                        instance's own workspace if no path is given. The
                        path doesn't need to be open, or even exist.
+    content            Print an open file's current buffer content,
+                       including unsaved changes (unlike reading the file
+                       itself from disk).
+    modified           Print \"true\" or \"false\": whether an open file's
+                       buffer has unsaved changes.
+    set-content        Replace an open file's buffer with stdin's content,
+                       applied as a diff against the current content (so
+                       it's undo-recoverable). Never touches disk; leaves
+                       the buffer modified. E.g.:
+                           git show HEAD:path/to/file | hx-remote set-content path/to/file
     list-files, ls     List the open, on-disk buffers of one running instance.
     list-instances, ps List the bus names of all running Helix instances.
 
@@ -1025,6 +1041,66 @@ async fn get_workspace_root(args: impl Iterator<Item = String>) -> anyhow::Resul
         bail!("{error}");
     }
     println!("{root}");
+    Ok(())
+}
+
+async fn get_buffer_content(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
+    let (path, instance) = parse_path_and_instance(args, true)?;
+
+    let conn = Connection::session()
+        .await
+        .context("connecting to the D-Bus session bus")?;
+    let proxy = connect(&conn, &instance).await?;
+
+    let (content, error) = proxy
+        .get_buffer_content(&path)
+        .await
+        .with_context(|| format!("calling GetBufferContent on {instance:?}"))?;
+    if !error.is_empty() {
+        bail!("{error}");
+    }
+    print!("{content}");
+    Ok(())
+}
+
+async fn is_modified(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
+    let (path, instance) = parse_path_and_instance(args, true)?;
+
+    let conn = Connection::session()
+        .await
+        .context("connecting to the D-Bus session bus")?;
+    let proxy = connect(&conn, &instance).await?;
+
+    let (modified, error) = proxy
+        .is_modified(&path)
+        .await
+        .with_context(|| format!("calling IsModified on {instance:?}"))?;
+    if !error.is_empty() {
+        bail!("{error}");
+    }
+    println!("{modified}");
+    Ok(())
+}
+
+async fn set_buffer_content(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
+    let (path, instance) = parse_path_and_instance(args, true)?;
+
+    let mut content = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut content)
+        .context("reading new content from stdin")?;
+
+    let conn = Connection::session()
+        .await
+        .context("connecting to the D-Bus session bus")?;
+    let proxy = connect(&conn, &instance).await?;
+
+    let error = proxy
+        .set_buffer_content(&path, &content)
+        .await
+        .with_context(|| format!("calling SetBufferContent on {instance:?}"))?;
+    if !error.is_empty() {
+        bail!("{error}");
+    }
     Ok(())
 }
 
