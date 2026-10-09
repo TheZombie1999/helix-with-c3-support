@@ -64,14 +64,18 @@ pub enum DiagnosticProvider {
         /// not clear the pull diagnostics and vice-versa.
         identifier: Option<Arc<str>>,
     },
-    // Future internal features can go here...
+    /// Not backed by any language server — used for diagnostics injected by an
+    /// internal Helix feature outside the LSP diagnostic pipeline (for example
+    /// `:review`). Rendering that's specifically tailored to LSP diagnostics
+    /// (inline diagnostics, the diagnostics picker) should ignore these.
+    Helix,
 }
 
 impl DiagnosticProvider {
     pub fn language_server_id(&self) -> Option<LanguageServerId> {
         match self {
             Self::Lsp { server_id, .. } => Some(*server_id),
-            // _ => None,
+            Self::Helix => None,
         }
     }
 }

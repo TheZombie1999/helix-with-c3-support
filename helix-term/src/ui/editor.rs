@@ -8,7 +8,9 @@ use crate::{
     ui::{
         document::{render_document, LinePos, TextRenderer},
         statusline,
-        text_decorations::{self, Decoration, DecorationManager, InlineDiagnostics},
+        text_decorations::{
+            self, Decoration, DecorationManager, InlineDiagnostics, ReviewComments,
+        },
         Completion, ProgressSpinners,
     },
 };
@@ -205,6 +207,7 @@ impl EditorView {
             inline_diagnostic_config,
             config.end_of_line_diagnostics,
         ));
+        decorations.add_decoration(ReviewComments::new(doc, theme));
         render_document(
             surface,
             inner,
@@ -381,6 +384,7 @@ impl EditorView {
         let mut error_vec = Vec::new();
         let mut unnecessary_vec = Vec::new();
         let mut deprecated_vec = Vec::new();
+        let mut review_vec = Vec::new();
 
         let push_diagnostic = |vec: &mut Vec<ops::Range<usize>>, range: Range| {
             // If any diagnostic overlaps ranges with the prior diagnostic,
@@ -399,6 +403,17 @@ impl EditorView {
         };
 
         for diagnostic in doc.diagnostics() {
+            // Diagnostics with no backing language server (e.g. `:review` comments) get a
+            // subtle background wash across their whole range instead of a severity-colored
+            // underline, so a multi-line review still shows which lines it covers.
+            if matches!(
+                diagnostic.provider,
+                helix_core::diagnostic::DiagnosticProvider::Helix
+            ) {
+                push_diagnostic(&mut review_vec, diagnostic.range);
+                continue;
+            }
+
             // Separate diagnostics into different Vecs by severity.
             let vec = match diagnostic.severity {
                 Some(Severity::Info) => &mut info_vec,
@@ -471,6 +486,16 @@ impl EditorView {
                 ranges: error_vec,
             },
         ]);
+        if let Some(highlight) = theme
+            .find_highlight_exact("ui.highlight")
+            .or_else(|| theme.find_highlight_exact("ui.selection"))
+            .or_else(|| theme.find_highlight_exact("ui.cursor"))
+        {
+            overlay_highlights.push(OverlayHighlights::Homogeneous {
+                highlight,
+                ranges: review_vec,
+            });
+        }
     }
 
     pub fn doc_document_highlights(

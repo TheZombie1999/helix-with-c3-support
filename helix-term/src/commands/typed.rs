@@ -2954,6 +2954,80 @@ fn noop(_cx: &mut compositor::Context, _args: Args, _event: PromptEvent) -> anyh
     Ok(())
 }
 
+/// Appends a review comment to `REVIEW.md` at the current file's workspace
+/// root, creating the file if it doesn't exist. If the primary selection
+/// spans more than one character the comment is attached to that range
+/// (with the selected text quoted alongside it); otherwise it's attached to
+/// the cursor's line.
+fn review(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    let comment = args.into_iter().fold(String::new(), |mut acc, arg| {
+        if !acc.is_empty() {
+            acc.push(' ');
+        }
+        acc.push_str(&arg);
+        acc
+    });
+
+    let (doc_id, workspace_root, rel_path, start_line, end_line, snippet) = {
+        let (view, doc) = current!(cx.editor);
+        let Some(path) = doc.path() else {
+            bail!("can't add a review comment to a buffer with no path");
+        };
+        let path = helix_stdx::path::canonicalize(path);
+        let workspace_root = doc.workspace_root().to_path_buf();
+        let rel_path = path
+            .strip_prefix(&workspace_root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .into_owned();
+
+        let text = doc.text().slice(..);
+        let range = doc.selection(view.id).primary();
+        let start_line = text.char_to_line(range.from());
+        let end_line = text.char_to_line(range.to().saturating_sub(1).max(range.from()));
+
+        // A plain cursor is a 1-char-wide range (`ensure_invariants`); only
+        // treat it as a "highlighted region" if it's actually wider than that.
+        let snippet = if range.to() - range.from() > 1 {
+            let language = doc.language_name().unwrap_or("").to_string();
+            let selected_text = text.slice(range.from()..range.to()).to_string();
+            Some((language, selected_text))
+        } else {
+            None
+        };
+
+        (
+            doc.id(),
+            workspace_root,
+            rel_path,
+            start_line,
+            end_line,
+            snippet,
+        )
+    };
+
+    crate::review::append_entry(
+        &workspace_root,
+        &rel_path,
+        start_line,
+        end_line,
+        snippet
+            .as_ref()
+            .map(|(lang, text)| (lang.as_str(), text.as_str())),
+        &comment,
+    )?;
+
+    crate::review::refresh_diagnostics(cx.editor, doc_id);
+    cx.editor
+        .set_status(format!("added review comment on {rel_path}"));
+
+    Ok(())
+}
+
 /// This command accepts a single boolean --skip-visible flag and no positionals.
 const BUFFER_CLOSE_OTHERS_SIGNATURE: Signature = Signature {
     positionals: (0, Some(0)),
@@ -4074,6 +4148,17 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         completer: CommandCompleter::none(),
         signature: Signature {
             positionals: (0, None),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
+        name: "review",
+        aliases: &[],
+        doc: "Appends a review comment (and the selection, if one is highlighted) to REVIEW.md.",
+        fun: review,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (1, None),
             ..Signature::DEFAULT
         },
     },

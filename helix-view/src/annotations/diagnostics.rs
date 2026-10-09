@@ -203,7 +203,14 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
             if diag.range.start != grapheme.char_idx {
                 break;
             }
-            self.stack.push((diag, anchor_col as u16));
+            // Diagnostics with no backing language server (e.g. `:review` comments) use
+            // their own dedicated rendering instead of the LSP inline-diagnostics config.
+            if !matches!(
+                diag.provider,
+                helix_core::diagnostic::DiagnosticProvider::Helix
+            ) {
+                self.stack.push((diag, anchor_col as u16));
+            }
             self.idx += 1;
         }
         false

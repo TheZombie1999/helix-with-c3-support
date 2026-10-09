@@ -38,6 +38,8 @@ All shortcuts/keymaps can be found [in the documentation on the website](https:/
 - Smart, incremental syntax highlighting and code editing via tree-sitter
 - Remote control over D-Bus on Unix, with an `hx-remote` CLI (see
   [Remote control](#remote-control))
+- `:review` command for leaving file-based review comments that show up as
+  diagnostics (see [Reviewing changes](#reviewing-changes))
 
 Although it's primarily a terminal-based editor, I am interested in exploring
 a custom renderer (similar to Emacs) using wgpu.
@@ -89,6 +91,48 @@ Bash completion for `hx-remote` is available at
 [`justfile`](./justfile) also has `busctl`-based recipes (`just open`,
 `just edit`, `just open-files`, `just list`) for talking to the interface
 directly, without building `hx-remote`.
+
+# Reviewing changes
+
+`:review <comment>` appends a review comment to `REVIEW.md` at the current
+file's workspace root (creating the file if it doesn't exist yet). If the
+primary selection is actually highlighting something (more than the default
+single-character cursor), the comment is attached to that range and the
+selected text is quoted alongside it; otherwise it's attached to the
+cursor's line:
+
+`````markdown
+## src/lib.rs:42
+
+some comment
+---
+
+## src/lib.rs:10-14
+
+```rust
+fn foo() {
+    todo!()
+}
+```
+
+this needs error handling
+---
+`````
+
+Helix reads `REVIEW.md` back and surfaces its entries wherever the
+referenced file is open, refreshing automatically when the file is
+(re)opened: a gutter sign, `]d`/`[d` navigation, and the status line count
+all treat review comments like any other diagnostic. The range itself gets
+a subtle background wash across every line it covers (the same highlight
+used for symbol references, not a severity-colored underline), and the
+comment text is displayed as a short end-of-line note styled like a code
+comment rather than the boxed-message treatment LSP diagnostics get;
+multiple comments landing on the same line are joined with " · ". There's
+no D-Bus and no in-memory queue involved — `REVIEW.md` is the whole
+interchange format, so an external tool (e.g. an AI coding agent
+reviewing its own changes) can read the same file directly. The one gap is
+the `:dp` diagnostics picker, which only reads real LSP diagnostics and
+won't list review comments.
 
 # Installation
 

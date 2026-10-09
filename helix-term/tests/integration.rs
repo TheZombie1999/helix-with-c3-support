@@ -21,5 +21,6 @@ mod test {
     #[cfg(all(unix, feature = "dbus"))]
     mod dbus;
     mod movement;
+    mod review;
     mod splits;
 }

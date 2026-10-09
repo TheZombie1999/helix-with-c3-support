@@ -31,6 +31,11 @@ Features:
     * Add `GetBufferContent` and `IsModified` to read an open file's live buffer (including unsaved edits, which reading the file from disk cannot see) and check for unsaved changes, plus matching `hx-remote content`/`hx-remote modified` subcommands
     * Add `SetBufferContent` to replace an open file's buffer in place (as an undo-recoverable diff, never touching disk) — e.g. to push back the result of resolving a buffer/disk divergence — plus a matching `hx-remote set-content` subcommand that reads the new content from stdin
 
+Commands:
+
+* Add `:review <comment>` to append a review comment to `REVIEW.md` at the current file's workspace root (creating the file if needed), attaching it to the highlighted region if one is selected or the cursor's line otherwise. Entries in `REVIEW.md` are read back and shown wherever the referenced file is open — gutter sign, `]d`/`[d` navigation, and status line count like any other diagnostic, plus a subtle background wash across every line the entry's range covers and the comment text as a short end-of-line note (styled like a code comment, multiple comments on the same line joined with " · ") instead of LSP's severity-colored underline/box — handy for reviewing AI-agent-generated changes, since `REVIEW.md` can also be read directly by the agent
+    * Add `DiagnosticProvider::None` for diagnostics with no backing language server, so LSP-oriented rendering (the inline-diagnostics box/eol config) can tell them apart from real LSP diagnostics and skip them
+
 # 25.07.1 (2025-07-18)
 
 This is a patch release which lowers the GLIBC requirements of the release artifacts published to GitHub ([#13983](https://github.com/helix-editor/helix/pull/13983))
