@@ -1,0 +1,14 @@
+[package]
+name = "helix-dbus"
+description = "D-Bus wire contract for Helix's remote-control interface: the interface spec and a generated client proxy"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+zbus = { version = "5.19.0", default-features = false, features = ["tokio"] }

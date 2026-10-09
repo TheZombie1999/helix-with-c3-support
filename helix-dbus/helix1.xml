@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  D-Bus interface exposed by a running Helix instance, letting other
+  processes ask it to open a file (see helix-term/src/dbus/mod.rs for the
+  server implementation and the bus/object-path naming scheme).
+
+  This file is the source of truth for the interface: the client proxy in
+  helix-term/src/dbus/proxy.rs is generated from it via
+  `cargo xtask dbus-codegen` (or `just dbus-codegen`). The server
+  implementation in mod.rs is hand-written and must be kept in sync with the
+  method signature documented here.
+-->
+<node name="/org/helix_editor/Helix"
+      xmlns:tp="http://telepathy.freedesktop.org/wiki/DbusSpec#extensions-v0">
+  <interface name="org.helix_editor.Helix1">
+    <tp:docstring>
+      Lets other processes ask this Helix instance to open a file.
+    </tp:docstring>
+
+    <method name="OpenFile">
+      <tp:docstring>
+        Opens a file, optionally moving the cursor to a given position and/or
+        switching the current view to show it.
+      </tp:docstring>
+      <arg name="path" type="s" direction="in">
+        <tp:docstring>Absolute path of the file to open.</tp:docstring>
+      </arg>
+      <arg name="line" type="u" direction="in">
+        <tp:docstring>
+          1-indexed line to move the cursor to, or 0 to leave the cursor's
+          line untouched.
+        </tp:docstring>
+      </arg>
+      <arg name="column" type="u" direction="in">
+        <tp:docstring>
+          1-indexed column to move the cursor to, or 0 to leave the cursor's
+          column untouched.
+        </tp:docstring>
+      </arg>
+      <arg name="focus" type="b" direction="in">
+        <tp:docstring>
+          If true, switch the current view to show the file immediately.
+          If false, only load it in the background, e.g. for a `git commit`
+          editor hook that shouldn't steal focus from whatever the user is
+          already looking at.
+        </tp:docstring>
+      </arg>
+      <arg name="wait" type="b" direction="in">
+        <tp:docstring>
+          If true, don't reply until the file's buffer is closed in Helix
+          (e.g. with `:bclose`) or the instance exits. This lets Helix be
+          used as a blocking `$EDITOR`, e.g. for `git commit` or `crontab
+          -e`. There is no timeout: the call blocks for as long as the
+          buffer stays open, so callers should use a connection with no
+          method-call timeout.
+        </tp:docstring>
+      </arg>
+      <arg name="error" type="s" direction="out">
+        <tp:docstring>
+          Empty on success, or a human readable error message on failure.
+        </tp:docstring>
+      </arg>
+    </method>
+
+    <method name="ListOpenFiles">
+      <tp:docstring>
+        Lists the absolute paths of this instance's currently open buffers
+        that are backed by a file on disk (unsaved scratch buffers with no
+        path are omitted).
+      </tp:docstring>
+      <arg name="paths" type="as" direction="out">
+        <tp:docstring>Absolute paths of the open buffers.</tp:docstring>
+      </arg>
+    </method>
+
+    <method name="CloseFile">
+      <tp:docstring>
+        Closes a file's buffer.
+      </tp:docstring>
+      <arg name="path" type="s" direction="in">
+        <tp:docstring>Absolute path of the open file to close.</tp:docstring>
+      </arg>
+      <arg name="force" type="b" direction="in">
+        <tp:docstring>
+          If true, discard unsaved changes instead of failing when the
+          buffer is modified.
+        </tp:docstring>
+      </arg>
+      <arg name="error" type="s" direction="out">
+        <tp:docstring>
+          Empty on success, or a human readable error message on failure.
+        </tp:docstring>
+      </arg>
+    </method>
+
+    <method name="ReloadFile">
+      <tp:docstring>
+        Reloads a file's buffer from disk. Its content is replaced with a
+        diff against the file's current on-disk content and applied as a
+        single edit, so unsaved changes are overwritten but still
+        recoverable with undo.
+      </tp:docstring>
+      <arg name="path" type="s" direction="in">
+        <tp:docstring>Absolute path of the open file to reload.</tp:docstring>
+      </arg>
+      <arg name="error" type="s" direction="out">
+        <tp:docstring>
+          Empty on success, or a human readable error message on failure
+          (e.g. the file isn't open, or no longer exists on disk).
+        </tp:docstring>
+      </arg>
+    </method>
+  </interface>
+</node>

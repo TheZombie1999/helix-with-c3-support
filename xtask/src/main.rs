@@ -1,3 +1,5 @@
+#[cfg(unix)]
+mod dbus_codegen;
 mod docgen;
 mod helpers;
 mod path;
@@ -16,6 +18,16 @@ pub mod tasks {
         write(STATIC_COMMANDS_MD_OUTPUT, &static_commands()?);
         write(LANG_SUPPORT_MD_OUTPUT, &lang_features()?);
         Ok(())
+    }
+
+    #[cfg(unix)]
+    pub fn dbus_codegen() -> Result<(), DynError> {
+        crate::dbus_codegen::generate()
+    }
+
+    #[cfg(not(unix))]
+    pub fn dbus_codegen() -> Result<(), DynError> {
+        Err("dbus-codegen is only available on Unix".into())
     }
 
     pub fn querycheck(languages: impl Iterator<Item = String>) -> Result<(), DynError> {
@@ -557,6 +569,8 @@ Usage: Run with `cargo xtask <task>`, eg. `cargo xtask docgen`.
                                    winning capture per span for an arbitrary input file.
         theme-check [themes]       Check that the theme files in runtime/themes/ are valid for the
                                    given themes, or all themes if none are specified.
+        dbus-codegen               Regenerate helix-term/src/dbus/proxy.rs from
+                                   helix-term/src/dbus/helix1.xml.
 "
         );
     }
@@ -573,6 +587,7 @@ fn main() -> Result<(), DynError> {
             "indent-check" => tasks::indentcheck(args)?,
             "highlight-check" => tasks::highlightcheck(args)?,
             "theme-check" => tasks::themecheck(args)?,
+            "dbus-codegen" => tasks::dbus_codegen()?,
             invalid => return Err(format!("Invalid task name: {}", invalid).into()),
         },
     };

@@ -6,6 +6,8 @@ pub mod args;
 pub mod commands;
 pub mod compositor;
 pub mod config;
+#[cfg(all(unix, feature = "dbus"))]
+pub mod dbus;
 pub mod events;
 pub mod health;
 pub mod job;

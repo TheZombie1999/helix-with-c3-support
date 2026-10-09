@@ -79,6 +79,13 @@ pub struct Application {
     lsp_progress: LspProgressMap,
 
     theme_mode: Option<theme::Mode>,
+
+    /// The bus name this instance's D-Bus server claimed (see
+    /// `crate::dbus`), exposed mainly so tests can address exactly this
+    /// instance regardless of other `Application`s sharing the same
+    /// process/PID.
+    #[cfg(all(unix, feature = "dbus"))]
+    pub dbus_bus_name: String,
 }
 
 #[cfg(feature = "integration")]
@@ -139,7 +146,12 @@ impl Application {
         let editor_view = Box::new(ui::EditorView::new(Keymaps::new(keys)));
         compositor.push(editor_view);
 
-        let jobs = Jobs::new();
+        let mut jobs = Jobs::new();
+
+        #[cfg(all(unix, feature = "dbus"))]
+        let dbus_bus_name = crate::dbus::claim_instance_name();
+        #[cfg(all(unix, feature = "dbus"))]
+        jobs.spawn(crate::dbus::run(dbus_bus_name.clone()));
 
         if args.load_tutor {
             let path = helix_loader::runtime_file(Path::new("tutor"));
@@ -253,6 +265,8 @@ impl Application {
             jobs,
             lsp_progress: LspProgressMap::new(),
             theme_mode,
+            #[cfg(all(unix, feature = "dbus"))]
+            dbus_bus_name,
         };
 
         Ok(app)

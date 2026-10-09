@@ -20,6 +20,14 @@ Updated languages and queries:
 Packaging:
 -->
 
+# Unreleased
+
+Features:
+
+* Add a D-Bus interface (Unix only, enabled by default via the `dbus` cargo feature) that lets other processes open, close, reload, and watch files in a running `hx` instance
+    * Add the `hx-remote` CLI client and bash completion for it
+    * Add `hx-remote changed` to open every file `git status` reports as changed
+
 # 25.07.1 (2025-07-18)
 
 This is a patch release which lowers the GLIBC requirements of the release artifacts published to GitHub ([#13983](https://github.com/helix-editor/helix/pull/13983))

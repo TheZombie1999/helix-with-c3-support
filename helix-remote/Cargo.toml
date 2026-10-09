@@ -1,0 +1,21 @@
+[package]
+name = "helix-remote"
+description = "CLI client for Helix's D-Bus remote-control interface"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "hx-remote"
+path = "src/main.rs"
+
+[target.'cfg(unix)'.dependencies]
+helix-dbus = { path = "../helix-dbus" }
+zbus = { version = "5.19.0", default-features = false, features = ["tokio"] }
+tokio = { version = "1", features = ["rt", "macros"] }
+anyhow = "1"

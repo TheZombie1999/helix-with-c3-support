@@ -18,6 +18,8 @@ mod test {
     mod auto_pairs;
     mod command_line;
     mod commands;
+    #[cfg(all(unix, feature = "dbus"))]
+    mod dbus;
     mod movement;
     mod splits;
 }

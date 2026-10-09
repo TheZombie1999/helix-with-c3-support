@@ -19,3 +19,9 @@ helix-loader = { path = "../helix-loader" }
 helix-stdx = { path = "../helix-stdx" }
 ropey.workspace = true
 toml.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+helix-dbus = { path = "../helix-dbus" }
+zbus = { version = "5.19.0", default-features = false }
+zbus_xml = "5.2.1"
+zbus_xmlgen = { version = "5.4.1", default-features = false }
