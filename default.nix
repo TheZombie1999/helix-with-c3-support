@@ -47,13 +47,19 @@ in
     };
 
     propagatedBuildInputs = [ runtimeDir ];
-    
+
     nativeBuildInputs = [
       installShellFiles
       git
     ];
 
     buildType = "release";
+
+    # The workspace restricts `cargo build`'s default members to `helix-term`
+    # (the `hx` binary) to keep plain `cargo build` fast for contributors who
+    # don't need `helix-remote`/`xtask`. Build `helix-remote` too so `hx-remote`
+    # actually ends up in the derivation.
+    cargoBuildFlags = ["-p" "helix-term" "-p" "helix-remote"];
 
     name = with builtins; (fromTOML (readFile ./helix-term/Cargo.toml)).package.name;
     src = fs.toSource {
@@ -77,6 +83,7 @@ in
     postInstall = ''
       mkdir -p $out/lib
       installShellCompletion ${./contrib/completion}/hx.{bash,fish,zsh}
+      installShellCompletion ${./contrib/completion}/hx-remote.bash
       mkdir -p $out/share/{applications,icons/hicolor/{256x256,scalable}/apps}
       cp ${./contrib/Helix.desktop} $out/share/applications/Helix.desktop
       cp ${./logo.svg} $out/share/icons/hicolor/scalable/apps/helix.svg

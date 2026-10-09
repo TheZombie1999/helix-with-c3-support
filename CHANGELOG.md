@@ -34,7 +34,11 @@ Features:
 Commands:
 
 * Add `:review <comment>` to append a review comment to `REVIEW.md` at the current file's workspace root (creating the file if needed), attaching it to the highlighted region if one is selected or the cursor's line otherwise. Entries in `REVIEW.md` are read back and shown wherever the referenced file is open — gutter sign, `]d`/`[d` navigation, and status line count like any other diagnostic, plus a subtle background wash across every line the entry's range covers and the comment text as a short end-of-line note (styled like a code comment, multiple comments on the same line joined with " · ") instead of LSP's severity-colored underline/box — handy for reviewing AI-agent-generated changes, since `REVIEW.md` can also be read directly by the agent
-    * Add `DiagnosticProvider::None` for diagnostics with no backing language server, so LSP-oriented rendering (the inline-diagnostics box/eol config) can tell them apart from real LSP diagnostics and skip them
+    * Add `DiagnosticProvider::Helix` for diagnostics with no backing language server, so LSP-oriented rendering (the inline-diagnostics box/eol config) can tell them apart from real LSP diagnostics and skip them
+
+Packaging:
+
+* Fix the Nix package (`default.nix`) only building and installing the `hx` binary — the workspace's `default-members` restricts plain `cargo build` to `helix-term`, so `helix-remote` (`hx-remote`) was silently missing from the Nix output; build it explicitly via `cargoBuildFlags` and install its bash completion too
 
 # 25.07.1 (2025-07-18)
 
