@@ -40,6 +40,10 @@ async fn run() -> anyhow::Result<()> {
         "close" => close_files(args).await,
         "reload" => reload_files(args).await,
         "watch" => watch(args).await,
+        "cursor" => get_cursor_position(args).await,
+        "selection" => get_selection(args).await,
+        "diagnostics" => get_diagnostics(args).await,
+        "workspace-root" => get_workspace_root(args).await,
         "list-files" | "ls" => list_files(args).await,
         "list-instances" | "ps" => list_instances().await,
         "help" | "-h" | "--help" => {
@@ -62,6 +66,10 @@ USAGE:
     hx-remote close <path>... [--force] [--instance NAME | --pid PID | --all]
     hx-remote reload [<path>...] [--instance NAME | --pid PID | --all]
     hx-remote watch [--interval SECS] [--instance NAME | --pid PID | --all]
+    hx-remote cursor <path> [--instance NAME | --pid PID]
+    hx-remote selection <path> [--instance NAME | --pid PID]
+    hx-remote diagnostics <path> [--instance NAME | --pid PID]
+    hx-remote workspace-root [<path>] [--instance NAME | --pid PID]
     hx-remote list-files [--instance NAME | --pid PID]
     hx-remote list-instances
 
@@ -87,6 +95,14 @@ COMMANDS:
                        is currently open, reloading changed files as they're
                        found. Files opened or closed after `watch` starts
                        are picked up automatically; stop with Ctrl-C.
+    cursor             Print an open file's cursor position, as LINE:COLUMN.
+    selection          Print an open file's selection range and text.
+    diagnostics        Print an open file's current diagnostics (e.g. LSP
+                       errors/warnings), one per line.
+    workspace-root     Print the workspace root for a path (the nearest
+                       ancestor with a .git/.svn/.jj/.helix), or this
+                       instance's own workspace if no path is given. The
+                       path doesn't need to be open, or even exist.
     list-files, ls     List the open, on-disk buffers of one running instance.
     list-instances, ps List the bus names of all running Helix instances.
 
@@ -893,6 +909,122 @@ async fn list_files(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
     for path in paths {
         println!("{path}");
     }
+    Ok(())
+}
+
+/// Parses `[<path>] [--instance NAME | --pid PID]` for the single-instance
+/// query commands (`cursor`, `selection`, `diagnostics`, `workspace-root`).
+/// `path_required` is false only for `workspace-root`, which treats a
+/// missing path as "this instance's own workspace".
+fn parse_path_and_instance(
+    args: impl Iterator<Item = String>,
+    path_required: bool,
+) -> anyhow::Result<(String, String)> {
+    let mut path = None;
+    let mut instance = SHARED_WELL_KNOWN_NAME.to_string();
+
+    let mut args = args;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--instance" => instance = args.next().context("--instance requires a value")?,
+            "--pid" => {
+                let pid: u32 = args
+                    .next()
+                    .context("--pid requires a value")?
+                    .parse()
+                    .context("--pid must be a number")?;
+                instance = pid_bus_name(pid);
+            }
+            other if other.starts_with("--") => bail!("unexpected argument {other:?}"),
+            p if path.is_none() => path = Some(absolute_path(p)?),
+            other => bail!("unexpected argument {other:?}"),
+        }
+    }
+
+    let path = match path {
+        Some(path) => path,
+        None if path_required => bail!("missing <path> argument"),
+        None => String::new(),
+    };
+    Ok((path, instance))
+}
+
+async fn get_cursor_position(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
+    let (path, instance) = parse_path_and_instance(args, true)?;
+
+    let conn = Connection::session()
+        .await
+        .context("connecting to the D-Bus session bus")?;
+    let proxy = connect(&conn, &instance).await?;
+
+    let (line, column, error) = proxy
+        .get_cursor_position(&path)
+        .await
+        .with_context(|| format!("calling GetCursorPosition on {instance:?}"))?;
+    if !error.is_empty() {
+        bail!("{error}");
+    }
+    println!("{line}:{column}");
+    Ok(())
+}
+
+async fn get_selection(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
+    let (path, instance) = parse_path_and_instance(args, true)?;
+
+    let conn = Connection::session()
+        .await
+        .context("connecting to the D-Bus session bus")?;
+    let proxy = connect(&conn, &instance).await?;
+
+    let (start_line, start_column, end_line, end_column, text, error) = proxy
+        .get_selection(&path)
+        .await
+        .with_context(|| format!("calling GetSelection on {instance:?}"))?;
+    if !error.is_empty() {
+        bail!("{error}");
+    }
+    println!("{start_line}:{start_column}-{end_line}:{end_column}");
+    println!("{text}");
+    Ok(())
+}
+
+async fn get_diagnostics(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
+    let (path, instance) = parse_path_and_instance(args, true)?;
+
+    let conn = Connection::session()
+        .await
+        .context("connecting to the D-Bus session bus")?;
+    let proxy = connect(&conn, &instance).await?;
+
+    let (diagnostics, error) = proxy
+        .get_diagnostics(&path)
+        .await
+        .with_context(|| format!("calling GetDiagnostics on {instance:?}"))?;
+    if !error.is_empty() {
+        bail!("{error}");
+    }
+    for (start_line, start_column, end_line, end_column, severity, message) in diagnostics {
+        println!("{start_line}:{start_column}-{end_line}:{end_column} {severity}: {message}");
+    }
+    Ok(())
+}
+
+async fn get_workspace_root(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
+    let (path, instance) = parse_path_and_instance(args, false)?;
+
+    let conn = Connection::session()
+        .await
+        .context("connecting to the D-Bus session bus")?;
+    let proxy = connect(&conn, &instance).await?;
+
+    let (root, error) = proxy
+        .get_workspace_root(&path)
+        .await
+        .with_context(|| format!("calling GetWorkspaceRoot on {instance:?}"))?;
+    if !error.is_empty() {
+        bail!("{error}");
+    }
+    println!("{root}");
     Ok(())
 }
 

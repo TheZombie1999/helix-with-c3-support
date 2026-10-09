@@ -110,5 +110,104 @@
         </tp:docstring>
       </arg>
     </method>
+
+    <method name="GetCursorPosition">
+      <tp:docstring>
+        Reports the primary cursor's position in an open file's buffer.
+      </tp:docstring>
+      <arg name="path" type="s" direction="in">
+        <tp:docstring>Absolute path of the open file.</tp:docstring>
+      </arg>
+      <arg name="line" type="u" direction="out">
+        <tp:docstring>1-indexed line. 0 on failure.</tp:docstring>
+      </arg>
+      <arg name="column" type="u" direction="out">
+        <tp:docstring>1-indexed column. 0 on failure.</tp:docstring>
+      </arg>
+      <arg name="error" type="s" direction="out">
+        <tp:docstring>
+          Empty on success, or a human readable error message on failure
+          (e.g. the file isn't open).
+        </tp:docstring>
+      </arg>
+    </method>
+
+    <method name="GetSelection">
+      <tp:docstring>
+        Reports the primary selection in an open file's buffer: the range it
+        covers and the text within it. Helix models even a plain cursor
+        (nothing deliberately selected) as a one-character-wide selection
+        over the character under the cursor, so `text` is never empty in a
+        non-empty file.
+      </tp:docstring>
+      <arg name="path" type="s" direction="in">
+        <tp:docstring>Absolute path of the open file.</tp:docstring>
+      </arg>
+      <arg name="start_line" type="u" direction="out">
+        <tp:docstring>1-indexed start line. 0 on failure.</tp:docstring>
+      </arg>
+      <arg name="start_column" type="u" direction="out">
+        <tp:docstring>1-indexed start column. 0 on failure.</tp:docstring>
+      </arg>
+      <arg name="end_line" type="u" direction="out">
+        <tp:docstring>1-indexed end line (inclusive side may extend one past the last selected character). 0 on failure.</tp:docstring>
+      </arg>
+      <arg name="end_column" type="u" direction="out">
+        <tp:docstring>1-indexed end column. 0 on failure.</tp:docstring>
+      </arg>
+      <arg name="text" type="s" direction="out">
+        <tp:docstring>The text the selection covers.</tp:docstring>
+      </arg>
+      <arg name="error" type="s" direction="out">
+        <tp:docstring>
+          Empty on success, or a human readable error message on failure
+          (e.g. the file isn't open).
+        </tp:docstring>
+      </arg>
+    </method>
+
+    <method name="GetDiagnostics">
+      <tp:docstring>
+        Lists an open file's current diagnostics (e.g. LSP errors and
+        warnings).
+      </tp:docstring>
+      <arg name="path" type="s" direction="in">
+        <tp:docstring>Absolute path of the open file.</tp:docstring>
+      </arg>
+      <arg name="diagnostics" type="a(uuuuss)" direction="out">
+        <tp:docstring>
+          One entry per diagnostic: 1-indexed (start_line, start_column,
+          end_line, end_column), then severity ("error", "warning", "info",
+          or "hint"), then the diagnostic's message.
+        </tp:docstring>
+      </arg>
+      <arg name="error" type="s" direction="out">
+        <tp:docstring>
+          Empty on success, or a human readable error message on failure
+          (e.g. the file isn't open).
+        </tp:docstring>
+      </arg>
+    </method>
+
+    <method name="GetWorkspaceRoot">
+      <tp:docstring>
+        Reports a workspace root: the nearest ancestor directory of `path`
+        containing a `.git`, `.svn`, `.jj`, or `.helix`, falling back to
+        this instance's own working-directory-derived workspace if none is
+        found (or if `path` is empty). `path` need not be open, or even
+        exist; this never actually fails, the `error` output exists only
+        for consistency with the rest of this interface.
+      </tp:docstring>
+      <arg name="path" type="s" direction="in">
+        <tp:docstring>
+          Absolute path to resolve a workspace for, or empty for this
+          instance's own workspace.
+        </tp:docstring>
+      </arg>
+      <arg name="root" type="s" direction="out">
+        <tp:docstring>Absolute path to the workspace root.</tp:docstring>
+      </arg>
+      <arg name="error" type="s" direction="out"/>
+    </method>
   </interface>
 </node>

@@ -30,6 +30,58 @@ pub trait Helix1 {
     /// * `error` - Empty on success, or a human readable error message on failure.
     fn close_file(&self, path: &str, force: bool) -> zbus::Result<String>;
 
+    /// GetCursorPosition method
+    ///
+    /// Reports the primary cursor's position in an open file's buffer.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Absolute path of the open file.
+    /// * `line` - 1-indexed line. 0 on failure.
+    /// * `column` - 1-indexed column. 0 on failure.
+    /// * `error` - Empty on success, or a human readable error message on failure (e.g. the file isn't open).
+    fn get_cursor_position(&self, path: &str) -> zbus::Result<(u32, u32, String)>;
+
+    /// GetDiagnostics method
+    ///
+    /// Lists an open file's current diagnostics (e.g. LSP errors and warnings).
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Absolute path of the open file.
+    /// * `diagnostics` - One entry per diagnostic: 1-indexed (start_line, start_column, end_line, end_column), then severity ("error", "warning", "info", or "hint"), then the diagnostic's message.
+    /// * `error` - Empty on success, or a human readable error message on failure (e.g. the file isn't open).
+    fn get_diagnostics(
+        &self,
+        path: &str,
+    ) -> zbus::Result<(Vec<(u32, u32, u32, u32, String, String)>, String)>;
+
+    /// GetSelection method
+    ///
+    /// Reports the primary selection in an open file's buffer: the range it covers and the text within it. Helix models even a plain cursor (nothing deliberately selected) as a one-character-wide selection over the character under the cursor, so `text` is never empty in a non-empty file.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Absolute path of the open file.
+    /// * `start_line` - 1-indexed start line. 0 on failure.
+    /// * `start_column` - 1-indexed start column. 0 on failure.
+    /// * `end_line` - 1-indexed end line (inclusive side may extend one past the last selected character). 0 on failure.
+    /// * `end_column` - 1-indexed end column. 0 on failure.
+    /// * `text` - The text the selection covers.
+    /// * `error` - Empty on success, or a human readable error message on failure (e.g. the file isn't open).
+    #[allow(clippy::too_many_arguments)]
+    fn get_selection(&self, path: &str) -> zbus::Result<(u32, u32, u32, u32, String, String)>;
+
+    /// GetWorkspaceRoot method
+    ///
+    /// Reports a workspace root: the nearest ancestor directory of `path` containing a `.git`, `.svn`, `.jj`, or `.helix`, falling back to this instance's own working-directory-derived workspace if none is found (or if `path` is empty). `path` need not be open, or even exist; this never actually fails, the `error` output exists only for consistency with the rest of this interface.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Absolute path to resolve a workspace for, or empty for this instance's own workspace.
+    /// * `root` - Absolute path to the workspace root.
+    fn get_workspace_root(&self, path: &str) -> zbus::Result<(String, String)>;
+
     /// ListOpenFiles method
     ///
     /// Lists the absolute paths of this instance's currently open buffers that are backed by a file on disk (unsaved scratch buffers with no path are omitted).

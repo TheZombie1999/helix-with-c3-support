@@ -49,7 +49,9 @@ Note: Only certain languages have indentation definitions at the moment. Check
 
 On Unix, a running `hx` instance exposes a D-Bus interface (enabled by
 default via the `dbus` cargo feature) that lets other processes open,
-close, reload, and watch files in it. See
+close, reload, and watch files in it, and pull context from it (cursor
+position, selection, diagnostics, workspace root) — handy for scripting or
+wiring up an external tool like an AI assistant. See
 [`helix-dbus/helix1.xml`](./helix-dbus/helix1.xml) for the interface
 definition, and
 [`helix-term/src/dbus/mod.rs`](./helix-term/src/dbus/mod.rs) for the server
@@ -64,6 +66,10 @@ hx-remote changed                       # open every file `git status` reports a
 hx-remote close <path>...               # close open buffers
 hx-remote reload [<path>...]            # reload buffers from disk (defaults to everything open)
 hx-remote watch                         # auto-reload files as they change on disk
+hx-remote cursor <path>                 # print a file's cursor position
+hx-remote selection <path>              # print a file's selection range and text
+hx-remote diagnostics <path>            # print a file's current diagnostics
+hx-remote workspace-root [<path>]       # print a workspace root
 hx-remote list-files                    # list a running instance's open buffers
 hx-remote list-instances                # list running instances
 ```

@@ -357,3 +357,158 @@ async fn reload_file_over_dbus() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// `GetCursorPosition` reports where `OpenFile` just placed the cursor.
+#[tokio::test(flavor = "multi_thread")]
+async fn get_cursor_position_over_dbus() -> anyhow::Result<()> {
+    require_session_bus!();
+
+    let mut app = AppBuilder::new().build()?;
+    let client = Connection::session().await?;
+    let proxy = connect(&mut app, &client).await?;
+
+    let file = tempfile::NamedTempFile::new()?;
+    std::fs::write(file.path(), "hello from dbus\nsecond line\n")?;
+    let path = file.path().to_str().unwrap().to_owned();
+
+    let open_task = {
+        let proxy = proxy.clone();
+        let path = path.clone();
+        tokio::spawn(async move { proxy.open_file(&path, 2, 3, false, false).await })
+    };
+    let result = pump_while(&mut app, open_task).await?;
+    assert!(result.is_empty(), "OpenFile returned an error: {result}");
+
+    let get_task = tokio::spawn(async move { proxy.get_cursor_position(&path).await });
+    let (line, column, error) = pump_while(&mut app, get_task).await?;
+    assert!(error.is_empty(), "GetCursorPosition returned: {error}");
+    assert_eq!((line, column), (2, 3));
+
+    Ok(())
+}
+
+/// `GetSelection` reports the primary selection's range and text.
+#[tokio::test(flavor = "multi_thread")]
+async fn get_selection_over_dbus() -> anyhow::Result<()> {
+    require_session_bus!();
+
+    let mut app = AppBuilder::new().build()?;
+    let client = Connection::session().await?;
+    let proxy = connect(&mut app, &client).await?;
+
+    let file = tempfile::NamedTempFile::new()?;
+    std::fs::write(file.path(), "hello from dbus\n")?;
+    let path = file.path().to_str().unwrap().to_owned();
+
+    let open_task = {
+        let proxy = proxy.clone();
+        let path = path.clone();
+        tokio::spawn(async move { proxy.open_file(&path, 0, 0, false, false).await })
+    };
+    let result = pump_while(&mut app, open_task).await?;
+    assert!(result.is_empty(), "OpenFile returned an error: {result}");
+
+    // Select "hello" (chars 0..5) in the view that `open_file` set up.
+    let doc_id = app
+        .editor
+        .document_id_by_path(file.path())
+        .expect("file should be open");
+    let view_id = app.editor.tree.focus;
+    let doc = helix_view::doc_mut!(app.editor, &doc_id);
+    doc.set_selection(view_id, helix_core::Selection::single(0, 5));
+
+    let get_task = tokio::spawn(async move { proxy.get_selection(&path).await });
+    let (start_line, start_column, end_line, end_column, text, error) =
+        pump_while(&mut app, get_task).await?;
+    assert!(error.is_empty(), "GetSelection returned an error: {error}");
+    assert_eq!((start_line, start_column), (1, 1));
+    assert_eq!((end_line, end_column), (1, 6));
+    assert_eq!(text, "hello");
+
+    Ok(())
+}
+
+/// `GetDiagnostics` reports a document's currently cached diagnostics.
+#[tokio::test(flavor = "multi_thread")]
+async fn get_diagnostics_over_dbus() -> anyhow::Result<()> {
+    require_session_bus!();
+
+    let mut app = AppBuilder::new().build()?;
+    let client = Connection::session().await?;
+    let proxy = connect(&mut app, &client).await?;
+
+    let file = tempfile::NamedTempFile::new()?;
+    std::fs::write(file.path(), "hello from dbus\n")?;
+    let path = file.path().to_str().unwrap().to_owned();
+
+    let open_task = {
+        let proxy = proxy.clone();
+        let path = path.clone();
+        tokio::spawn(async move { proxy.open_file(&path, 0, 0, false, false).await })
+    };
+    let result = pump_while(&mut app, open_task).await?;
+    assert!(result.is_empty(), "OpenFile returned an error: {result}");
+
+    let doc_id = app
+        .editor
+        .document_id_by_path(file.path())
+        .expect("file should be open");
+    let doc = helix_view::doc_mut!(app.editor, &doc_id);
+    let diagnostic = helix_core::Diagnostic {
+        range: helix_stdx::range::Range { start: 6, end: 10 },
+        ends_at_word: false,
+        starts_at_word: false,
+        zero_width: false,
+        line: 0,
+        message: "something's off".to_string(),
+        severity: Some(helix_core::diagnostic::Severity::Warning),
+        code: None,
+        provider: helix_core::diagnostic::DiagnosticProvider::Lsp {
+            server_id: helix_lsp::LanguageServerId::default(),
+            identifier: None,
+        },
+        tags: Vec::new(),
+        source: None,
+        data: None,
+    };
+    doc.replace_diagnostics(vec![diagnostic], &[], None);
+
+    let get_task = tokio::spawn(async move { proxy.get_diagnostics(&path).await });
+    let (diagnostics, error) = pump_while(&mut app, get_task).await?;
+    assert!(error.is_empty(), "GetDiagnostics returned an error: {error}");
+    assert_eq!(
+        diagnostics,
+        vec![(1, 7, 1, 11, "warning".to_string(), "something's off".to_string())]
+    );
+
+    Ok(())
+}
+
+/// `GetWorkspaceRoot` resolves the nearest ancestor containing a `.git`,
+/// independent of whether the path is open in the editor at all.
+#[tokio::test(flavor = "multi_thread")]
+async fn get_workspace_root_over_dbus() -> anyhow::Result<()> {
+    require_session_bus!();
+
+    let mut app = AppBuilder::new().build()?;
+    let client = Connection::session().await?;
+    let proxy = connect(&mut app, &client).await?;
+
+    let workspace = tempfile::tempdir()?;
+    std::fs::create_dir(workspace.path().join(".git"))?;
+    let nested = workspace.path().join("src/nested");
+    std::fs::create_dir_all(&nested)?;
+    let file_path = nested.join("file.rs");
+    std::fs::write(&file_path, "fn main() {}\n")?;
+    let path = file_path.to_str().unwrap().to_owned();
+
+    let get_task = tokio::spawn(async move { proxy.get_workspace_root(&path).await });
+    let (root, error) = pump_while(&mut app, get_task).await?;
+    assert!(error.is_empty(), "GetWorkspaceRoot returned an error: {error}");
+    assert_eq!(
+        helix_stdx::path::canonicalize(root),
+        helix_stdx::path::canonicalize(workspace.path())
+    );
+
+    Ok(())
+}

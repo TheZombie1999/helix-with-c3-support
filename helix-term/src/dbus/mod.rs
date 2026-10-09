@@ -6,7 +6,10 @@
 //! act as a blocking `$EDITOR`). `CloseFile` and `ReloadFile` round out the
 //! other direction (closing a buffer, and picking up out-of-band changes to
 //! an already-open file), and `ListOpenFiles` lets a remote picker or
-//! status tool see what's currently open.
+//! status tool see what's currently open. `GetCursorPosition`,
+//! `GetSelection`, `GetDiagnostics`, and `GetWorkspaceRoot` let a remote
+//! tool pull context from the editor (e.g. for an AI assistant) instead of
+//! only pushing actions at it.
 //!
 //! Each instance claims a PID-suffixed bus name (`org.helix_editor.Helix.pid<PID>`)
 //! so that multiple running instances never collide, and additionally makes a
@@ -30,13 +33,13 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use helix_core::{pos_at_coords, Position, Selection};
+use helix_core::{coords_at_pos, diagnostic::Severity, pos_at_coords, Position, Selection};
 use helix_dbus::{OBJECT_PATH, SHARED_WELL_KNOWN_NAME};
 use helix_event::register_hook;
 use helix_loader::workspace_trust::TrustQuery;
 use helix_view::{
-    doc_mut, editor::Action, editor::CloseError, events::DocumentDidClose, view_mut, DocumentId,
-    Editor,
+    doc_mut, editor::Action, editor::CloseError, events::DocumentDidClose, view_mut, Document,
+    DocumentId, Editor, ViewId,
 };
 use parking_lot::Mutex;
 use tokio::sync::oneshot;
@@ -234,6 +237,82 @@ impl Interface {
             Err(_) => "Helix shut down before the file could be reloaded".to_string(),
         }
     }
+
+    /// Reports the primary cursor's position in an open file's buffer.
+    /// `line`/`column` are 1-indexed and 0 on failure; see `error`.
+    async fn get_cursor_position(&self, path: String) -> (u32, u32, String) {
+        let (tx, rx) = oneshot::channel();
+        let path = PathBuf::from(path);
+
+        job::dispatch(move |editor, _compositor| {
+            let _ = tx.send(get_cursor_position(editor, &path));
+        })
+        .await;
+
+        match rx.await {
+            Ok(Ok((line, column))) => (line, column, String::new()),
+            Ok(Err(err)) => (0, 0, err),
+            Err(_) => (0, 0, "Helix shut down before replying".to_string()),
+        }
+    }
+
+    /// Reports the primary selection in an open file's buffer. See
+    /// `helix1.xml` for the exact semantics of each field.
+    async fn get_selection(&self, path: String) -> (u32, u32, u32, u32, String, String) {
+        let (tx, rx) = oneshot::channel();
+        let path = PathBuf::from(path);
+
+        job::dispatch(move |editor, _compositor| {
+            let _ = tx.send(get_selection(editor, &path));
+        })
+        .await;
+
+        match rx.await {
+            Ok(Ok((start_line, start_column, end_line, end_column, text))) => (
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+                text,
+                String::new(),
+            ),
+            Ok(Err(err)) => (0, 0, 0, 0, String::new(), err),
+            Err(_) => (
+                0,
+                0,
+                0,
+                0,
+                String::new(),
+                "Helix shut down before replying".to_string(),
+            ),
+        }
+    }
+
+    /// Lists an open file's current diagnostics. See `helix1.xml` for the
+    /// exact shape of each entry.
+    async fn get_diagnostics(&self, path: String) -> (Vec<DiagnosticEntry>, String) {
+        let (tx, rx) = oneshot::channel();
+        let path = PathBuf::from(path);
+
+        job::dispatch(move |editor, _compositor| {
+            let _ = tx.send(get_diagnostics(editor, &path));
+        })
+        .await;
+
+        match rx.await {
+            Ok(Ok(diagnostics)) => (diagnostics, String::new()),
+            Ok(Err(err)) => (Vec::new(), err),
+            Err(_) => (Vec::new(), "Helix shut down before replying".to_string()),
+        }
+    }
+
+    /// Reports a workspace root for `path` (or this instance's own
+    /// workspace if `path` is empty). Doesn't touch the editor at all, so
+    /// unlike every other method here it answers directly, without a round
+    /// trip through the job queue.
+    async fn get_workspace_root(&self, path: String) -> (String, String) {
+        (get_workspace_root(&path), String::new())
+    }
 }
 
 fn open_file(
@@ -310,6 +389,104 @@ fn reload_file(editor: &mut Editor, path: &Path) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// The view to report `doc`'s cursor/selection from: the focused view if
+/// it's showing `doc`, otherwise an arbitrary one that is. `None` if `doc`
+/// has never been associated with any view (shouldn't normally happen for
+/// a document reachable through this interface at all).
+fn view_for_doc(editor: &Editor, doc: &Document) -> Option<ViewId> {
+    let focus = editor.tree.focus;
+    if doc.selections().contains_key(&focus) {
+        Some(focus)
+    } else {
+        doc.selections().keys().next().copied()
+    }
+}
+
+fn open_doc_by_path<'a>(editor: &'a Editor, path: &Path) -> Result<&'a Document, String> {
+    let path = helix_stdx::path::canonicalize(path);
+    editor
+        .document_by_path(&path)
+        .ok_or_else(|| "file is not open".to_string())
+}
+
+fn get_cursor_position(editor: &Editor, path: &Path) -> Result<(u32, u32), String> {
+    let doc = open_doc_by_path(editor, path)?;
+    let view_id =
+        view_for_doc(editor, doc).ok_or_else(|| "file has no cursor to report".to_string())?;
+
+    let text = doc.text().slice(..);
+    let cursor = doc.selection(view_id).primary().cursor(text);
+    let pos = coords_at_pos(text, cursor);
+    Ok(((pos.row + 1) as u32, (pos.col + 1) as u32))
+}
+
+fn get_selection(editor: &Editor, path: &Path) -> Result<(u32, u32, u32, u32, String), String> {
+    let doc = open_doc_by_path(editor, path)?;
+    let view_id =
+        view_for_doc(editor, doc).ok_or_else(|| "file has no selection to report".to_string())?;
+
+    let text = doc.text().slice(..);
+    let range = doc.selection(view_id).primary();
+    let start = coords_at_pos(text, range.from());
+    let end = coords_at_pos(text, range.to());
+    let selected_text = text.slice(range.from()..range.to()).to_string();
+
+    Ok((
+        (start.row + 1) as u32,
+        (start.col + 1) as u32,
+        (end.row + 1) as u32,
+        (end.col + 1) as u32,
+        selected_text,
+    ))
+}
+
+/// One `GetDiagnostics` entry: (start_line, start_column, end_line,
+/// end_column, severity, message).
+type DiagnosticEntry = (u32, u32, u32, u32, String, String);
+
+fn get_diagnostics(editor: &Editor, path: &Path) -> Result<Vec<DiagnosticEntry>, String> {
+    let doc = open_doc_by_path(editor, path)?;
+    let text = doc.text().slice(..);
+
+    Ok(doc
+        .diagnostics()
+        .iter()
+        .map(|diagnostic| {
+            let start = coords_at_pos(text, diagnostic.range.start);
+            let end = coords_at_pos(text, diagnostic.range.end);
+            let severity = match diagnostic.severity {
+                Some(Severity::Error) => "error",
+                Some(Severity::Warning) => "warning",
+                Some(Severity::Info) => "info",
+                Some(Severity::Hint) | None => "hint",
+            };
+            (
+                (start.row + 1) as u32,
+                (start.col + 1) as u32,
+                (end.row + 1) as u32,
+                (end.col + 1) as u32,
+                severity.to_string(),
+                diagnostic.message.clone(),
+            )
+        })
+        .collect())
+}
+
+/// Pure filesystem lookup; doesn't touch the `Editor` at all, so unlike
+/// everything else in this module it never needs a `job::dispatch` round
+/// trip.
+fn get_workspace_root(path: &str) -> String {
+    let root = if path.is_empty() {
+        helix_loader::find_workspace().0
+    } else {
+        let path = helix_stdx::path::canonicalize(Path::new(path));
+        path.parent()
+            .map(|dir| helix_loader::find_workspace_in(dir).0)
+            .unwrap_or_else(|| helix_loader::find_workspace().0)
+    };
+    root.to_string_lossy().into_owned()
 }
 
 /// Connect to the session bus and serve the Helix D-Bus interface at `name`

@@ -27,6 +27,7 @@ Features:
 * Add a D-Bus interface (Unix only, enabled by default via the `dbus` cargo feature) that lets other processes open, close, reload, and watch files in a running `hx` instance
     * Add the `hx-remote` CLI client and bash completion for it
     * Add `hx-remote changed` to open every file `git status` reports as changed
+    * Add `GetCursorPosition`, `GetSelection`, `GetDiagnostics`, and `GetWorkspaceRoot` to let remote tools pull context (e.g. for an AI assistant) instead of only pushing actions, plus matching `hx-remote` subcommands (`cursor`, `selection`, `diagnostics`, `workspace-root`)
 
 # 25.07.1 (2025-07-18)
 

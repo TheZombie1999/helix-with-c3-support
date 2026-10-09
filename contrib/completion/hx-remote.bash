@@ -18,7 +18,7 @@ _hx_remote() {
     cmd="${COMP_WORDS[1]}"
 
     if [ "$COMP_CWORD" -eq 1 ]; then
-        mapfile -t COMPREPLY < <(compgen -W "open edit changed close reload watch list-files ls list-instances ps help" -- "$cur")
+        mapfile -t COMPREPLY < <(compgen -W "open edit changed close reload watch cursor selection diagnostics workspace-root list-files ls list-instances ps help" -- "$cur")
         return 0
     fi
 
@@ -69,6 +69,26 @@ _hx_remote() {
         ;;
     watch)
         mapfile -t COMPREPLY < <(compgen -W "--interval --all --instance --pid -h --help" -- "$cur")
+        ;;
+    cursor | selection | diagnostics)
+        case "$cur" in
+        -*)
+            mapfile -t COMPREPLY < <(compgen -W "--instance --pid -h --help" -- "$cur")
+            ;;
+        *)
+            mapfile -t COMPREPLY < <(compgen -fd -- "$cur")
+            ;;
+        esac
+        ;;
+    workspace-root)
+        case "$cur" in
+        -*)
+            mapfile -t COMPREPLY < <(compgen -W "--instance --pid -h --help" -- "$cur")
+            ;;
+        *)
+            mapfile -t COMPREPLY < <(compgen -d -- "$cur")
+            ;;
+        esac
         ;;
     list-files | ls)
         mapfile -t COMPREPLY < <(compgen -W "--instance --pid -h --help" -- "$cur")
